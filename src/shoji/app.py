@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from shoji.config import Settings
 from shoji.streaming import relay
+from shoji.upstream import send_with_retry
 
 
 def _error(status: int, message: str, err_type: str = "invalid_request_error") -> JSONResponse:
@@ -17,6 +18,25 @@ def _error(status: int, message: str, err_type: str = "invalid_request_error") -
     return JSONResponse(
         status_code=status,
         content={"error": {"message": message, "type": err_type, "code": None}},
+    )
+
+
+def _upstream_error(resp: httpx.Response) -> Response:
+    """Pass the provider's error through if it is already OpenAI-shaped; otherwise wrap it.
+
+    Gateways in front of providers sometimes return HTML or plain-text error pages, which
+    OpenAI client SDKs cannot parse.
+    """
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+        return Response(
+            content=resp.content, status_code=resp.status_code, media_type="application/json"
+        )
+    return _error(
+        resp.status_code, f"Upstream provider returned HTTP {resp.status_code}.", "upstream_error"
     )
 
 
@@ -50,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if "model" not in body and settings.shoji_default_model:
             body["model"] = settings.shoji_default_model
+        stream = bool(body.get("stream"))
 
         # The client's own Authorization header is never forwarded: the proxy holds the key.
         upstream: httpx.AsyncClient = request.app.state.upstream
@@ -59,20 +80,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             json=body,
             headers={"Authorization": f"Bearer {provider.api_key}"},
         )
-        resp = await upstream.send(upstream_request, stream=bool(body.get("stream")))
+        try:
+            resp = await send_with_retry(
+                upstream,
+                upstream_request,
+                stream=stream,
+                retries=settings.shoji_upstream_retries,
+                backoff=settings.shoji_retry_backoff,
+            )
+        except httpx.TimeoutException:
+            return _error(
+                504,
+                f"Upstream provider did not respond within {settings.shoji_upstream_timeout:g}s.",
+                "upstream_timeout",
+            )
+        except httpx.TransportError:
+            return _error(502, "Could not reach the upstream provider.", "upstream_unavailable")
 
-        if body.get("stream"):
-            if resp.is_success:
-                return StreamingResponse(
-                    relay(resp.aiter_bytes(), resp.aclose),
-                    status_code=resp.status_code,
-                    media_type="text/event-stream",
-                    headers={"Cache-Control": "no-cache"},
-                )
-            # Errors arrive as a normal JSON body even for stream requests.
+        if stream and resp.is_success:
+            return StreamingResponse(
+                relay(resp.aiter_bytes(), resp.aclose),
+                status_code=resp.status_code,
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache"},
+            )
+        if stream:
+            # Errors arrive as a normal body even for stream requests.
             await resp.aread()
             await resp.aclose()
 
+        if not resp.is_success:
+            return _upstream_error(resp)
         return Response(
             content=resp.content,
             status_code=resp.status_code,
