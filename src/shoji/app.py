@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from shoji.config import Settings
+from shoji.streaming import relay
 
 
 def _error(status: int, message: str, err_type: str = "invalid_request_error") -> JSONResponse:
@@ -47,20 +48,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not isinstance(body, dict):
             return _error(400, "Request body must be a JSON object.")
 
-        if body.get("stream"):
-            # Streaming pass-through lands in issue #2.
-            return _error(501, "Streaming is not supported yet.")
-
         if "model" not in body and settings.shoji_default_model:
             body["model"] = settings.shoji_default_model
 
         # The client's own Authorization header is never forwarded: the proxy holds the key.
         upstream: httpx.AsyncClient = request.app.state.upstream
-        resp = await upstream.post(
+        upstream_request = upstream.build_request(
+            "POST",
             "/chat/completions",
             json=body,
             headers={"Authorization": f"Bearer {provider.api_key}"},
         )
+        resp = await upstream.send(upstream_request, stream=bool(body.get("stream")))
+
+        if body.get("stream"):
+            if resp.is_success:
+                return StreamingResponse(
+                    relay(resp.aiter_bytes(), resp.aclose),
+                    status_code=resp.status_code,
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache"},
+                )
+            # Errors arrive as a normal JSON body even for stream requests.
+            await resp.aread()
+            await resp.aclose()
+
         return Response(
             content=resp.content,
             status_code=resp.status_code,

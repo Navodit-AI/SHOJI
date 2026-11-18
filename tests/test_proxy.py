@@ -107,9 +107,49 @@ def test_non_object_body_rejected(client):
     assert resp.status_code == 400
 
 
-def test_stream_requests_rejected_until_issue_2(client):
-    resp = client.post("/v1/chat/completions", json={"model": "m", "messages": [], "stream": True})
-    assert resp.status_code == 501
+SSE_EVENTS = [
+    b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
+    b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
+    b"data: [DONE]\n\n",
+]
+
+
+@respx.mock
+def test_stream_relays_events_in_order_with_done(client):
+    # Network chunks deliberately cut events in half.
+    raw = b"".join(SSE_EVENTS)
+    chunks = [raw[:10], raw[10:60], raw[60:]]
+
+    async def upstream_body():
+        for chunk in chunks:
+            yield chunk
+
+    route = respx.post(f"{GROQ}/chat/completions").mock(
+        return_value=httpx.Response(
+            200, content=upstream_body(), headers={"content-type": "text/event-stream"}
+        )
+    )
+    payload = {"model": "m", "messages": [], "stream": True}
+
+    with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        received = b"".join(resp.iter_bytes())
+
+    assert received == raw
+    assert received.endswith(b"data: [DONE]\n\n")
+    assert json.loads(route.calls.last.request.content)["stream"] is True
+
+
+@respx.mock
+def test_stream_request_upstream_error_returns_json(client):
+    error = {"error": {"message": "Invalid model", "type": "invalid_request_error"}}
+    respx.post(f"{GROQ}/chat/completions").mock(return_value=httpx.Response(400, json=error))
+
+    resp = client.post("/v1/chat/completions", json={"model": "x", "messages": [], "stream": True})
+
+    assert resp.status_code == 400
+    assert resp.json() == error
 
 
 def test_health(client):
