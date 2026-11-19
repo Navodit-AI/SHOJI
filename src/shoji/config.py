@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     shoji_provider: str = "groq"
     shoji_upstream_timeout: float = 60.0
+    # Retries for connection failures and 5xx responses, before any response is sent.
+    shoji_upstream_retries: int = 1
+    shoji_retry_backoff: float = 0.5
     # Used only when a request omits `model`.
     shoji_default_model: str | None = None
 

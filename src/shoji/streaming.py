@@ -5,11 +5,28 @@ them into whole events so later stages (placeholder restoration in Stage 3) can 
 each event's text safely. In Stage 1 events are relayed unchanged.
 """
 
+import json
 import re
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 
+import httpx
+
 # An SSE event ends with a blank line; the spec allows \n, \r\n or \r line endings.
 _EVENT_END = re.compile(rb"\r\n\r\n|\n\n|\r\r")
+
+_MID_STREAM_ERROR = (
+    b"data: "
+    + json.dumps(
+        {
+            "error": {
+                "message": "Upstream provider connection failed mid-stream.",
+                "type": "upstream_error",
+                "code": None,
+            }
+        }
+    ).encode()
+    + b"\n\n"
+)
 
 
 async def sse_events(chunks: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
@@ -30,9 +47,15 @@ async def sse_events(chunks: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
 async def relay(
     chunks: AsyncIterable[bytes], close: Callable[[], Awaitable[None]]
 ) -> AsyncIterator[bytes]:
-    """Relay events to the client; always close the upstream, including on client disconnect."""
+    """Relay events to the client; always close the upstream, including on client disconnect.
+
+    If the upstream fails mid-stream, the HTTP status has already been sent, so the failure is
+    reported as a final SSE error event (the shape OpenAI uses) instead of a silent cut-off.
+    """
     try:
         async for event in sse_events(chunks):
             yield event
+    except httpx.TransportError:
+        yield _MID_STREAM_ERROR
     finally:
         await close()

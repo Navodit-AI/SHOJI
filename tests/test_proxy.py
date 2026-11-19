@@ -27,7 +27,12 @@ COMPLETION = {
 
 
 def make_settings(**overrides) -> Settings:
-    values = {"shoji_provider": "groq", "groq_api_key": "test-key", **overrides}
+    values = {
+        "shoji_provider": "groq",
+        "groq_api_key": "test-key",
+        "shoji_retry_backoff": 0,
+        **overrides,
+    }
     return Settings(_env_file=None, **values)
 
 
