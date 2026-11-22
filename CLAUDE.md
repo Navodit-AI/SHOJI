@@ -90,4 +90,16 @@ capture clean and reusable.
 - Every reported number comes from a script in `eval/` writing to `results/`.
 
 ## State
-- 18 Nov 2026: repo scaffolded (pyproject, CI, README). Stage 1 not started.
+- 18 Nov 2026: repo scaffolded (pyproject, CI, README).
+- 23 Nov 2026: Stage 1 complete (issues #1-#5, PRs #6-#10). Proxy modules:
+  `config.py` (providers/settings), `app.py` (endpoint), `upstream.py` (retry),
+  `streaming.py` (SSE event re-splitting; Stage 3 restoration hooks in here),
+  `capture.py` (RequestRecord + sinks; Stage 5 audit log = another sink).
+  Verified live against Groq with `openai/gpt-oss-20b`.
+- Next: Stage 2 (rule-based detection) issues not yet drafted.
+
+## Local dev notes
+- Manual server checks: start uvicorn in a thread from a Python script and set
+  `server.should_exit = True` at the end. Do not background `python -m shoji` and pkill it:
+  on macOS the process is named `Python -m shoji`, so a lowercase pkill misses it and the
+  server is left running on port 8000.
