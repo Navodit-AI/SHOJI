@@ -14,7 +14,7 @@ import httpx
 # An SSE event ends with a blank line; the spec allows \n, \r\n or \r line endings.
 _EVENT_END = re.compile(rb"\r\n\r\n|\n\n|\r\r")
 
-_MID_STREAM_ERROR = (
+MID_STREAM_ERROR = (
     b"data: "
     + json.dumps(
         {
@@ -56,6 +56,6 @@ async def relay(
         async for event in sse_events(chunks):
             yield event
     except httpx.TransportError:
-        yield _MID_STREAM_ERROR
+        yield MID_STREAM_ERROR
     finally:
         await close()
