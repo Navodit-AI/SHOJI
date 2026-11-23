@@ -96,7 +96,9 @@ capture clean and reusable.
   `streaming.py` (SSE event re-splitting; Stage 3 restoration hooks in here),
   `capture.py` (RequestRecord + sinks; Stage 5 audit log = another sink).
   Verified live against Groq with `openai/gpt-oss-20b`.
-- Next: Stage 2 (rule-based detection) issues not yet drafted.
+- Stage 2 (rule-based detection) issues drafted: #11-#16 (milestone "Stage 2: Rule-based
+  detection"). #11 recognizer framework done (`detect/` package: `entity.py`,
+  `recognizer.py`, `resolve.py`).
 
 ## Local dev notes
 - Manual server checks: start uvicorn in a thread from a Python script and set
