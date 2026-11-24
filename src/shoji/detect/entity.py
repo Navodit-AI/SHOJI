@@ -18,6 +18,7 @@ class EntityType(StrEnum):
     PHONE = "PHONE"
     EMAIL = "EMAIL"
     CARD_NUMBER = "CARD_NUMBER"
+    IP_ADDRESS = "IP_ADDRESS"
     PERSON = "PERSON"
 
 

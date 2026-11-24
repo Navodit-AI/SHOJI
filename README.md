@@ -8,8 +8,9 @@ response, and keeps an audit log.
 
 Integration is a one-line change: point your OpenAI-compatible client's base URL at SHOJI.
 
-> Status: Stage 1 of 7 complete: an OpenAI-compatible pass-through proxy with streaming,
-> retries and request logging. Detection and redaction come next (Stages 2–4).
+> Status: Stages 1–2 of 7 complete: an OpenAI-compatible pass-through proxy with streaming,
+> retries and request logging, and rule-based detection of Indian and generic personal-data
+> formats. The proxy does not redact yet; redact/restore comes in Stage 3.
 
 ## Quickstart
 
@@ -122,6 +123,47 @@ response content:
 The same id is returned in the `X-Request-ID` response header. Send your own `X-Request-ID`
 to correlate SHOJI's logs with your app's.
 
+## Detection
+
+Stage 2 adds rule-based recognizers, runnable on their own (locally, nothing is sent anywhere):
+
+```bash
+python -m shoji.detect "Remind Rahul (PAN ABCPD1234F, Aadhaar 2345 6789 0124) to pay ₹4,999 \
+via UPI to shop@okaxis or card 4111 1111 1111 1111. Call +91 98765 43210, order 234567890123."
+```
+
+```
+TYPE         SPAN        SCORE  RECOGNIZER  TEXT
+PAN          [18, 28)    0.85   pan         ABCPD1234F
+AADHAAR      [38, 52)    0.90   aadhaar     2345 6789 0124
+UPI_ID       [79, 90)    0.90   upi         shop@okaxis
+CARD_NUMBER  [99, 118)   0.90   card        4111 1111 1111 1111
+PHONE        [125, 140)  0.90   phone_in    +91 98765 43210
+```
+
+The order number is Aadhaar-shaped but fails the Verhoeff checksum, so it is not reported.
+Names ("Rahul") need the ML model from Stage 4. Add `--json` for one JSON object per
+detection, or pipe text on stdin. Spans are Python string offsets (Unicode code points).
+
+| Entity | Formats | Validation |
+|---|---|---|
+| `AADHAAR` | 12 digits, plain or 4-4-4 with spaces/hyphens | first digit 2-9, Verhoeff checksum |
+| `PAN` | `AAAAA9999A` | holder-type letter (4th) |
+| `GSTIN` | 15 characters | state code, embedded PAN, check character |
+| `IFSC` | `AAAA0XXXXXX` | 5th character `0` |
+| `PHONE` | Indian mobiles; `+91`/`91`/`0` prefixes; 5-5 or 3-3-4 grouping | starts 6-9 |
+| `UPI_ID` | `name@handle` | handle in [`upi_handles.txt`](src/shoji/detect/data/upi_handles.txt) |
+| `EMAIL` | `name@domain.tld` | |
+| `CARD_NUMBER` | 13-19 digits, plain or grouped | Luhn checksum |
+| `IP_ADDRESS` | IPv4, IPv6 | |
+
+Codes such as PAN, GSTIN and IFSC are also accepted in lowercase, with a lower score. When
+spans overlap (a PAN inside a GSTIN, a phone number inside a UPI ID), the longer span wins,
+then the higher score. Not yet covered: masked Aadhaar (`XXXX XXXX 1234`) and landlines.
+
+Tests and evaluation use only synthetic data from `shoji.synthetic` (fake values, look-alikes
+that must not match, and exact ground-truth spans).
+
 ## Development
 
 ```bash
@@ -133,7 +175,7 @@ ruff format --check .
 ## Roadmap
 
 1. ~~Pass-through proxy with streaming, one provider, request logging~~ (done)
-2. Rule-based detection for structured Indian and generic formats
+2. ~~Rule-based detection for structured Indian and generic formats~~ (done)
 3. Redact/restore, including streaming restoration and an encrypted vault
 4. ML-based detection (names, addresses) merged with the rules
 5. Audit log, dashboard and playground

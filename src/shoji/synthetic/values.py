@@ -2,7 +2,8 @@
 
 Everything is random: no value is taken from a real person. Randomly generated phone,
 Aadhaar or card numbers can coincide with numbers that exist, but nothing ties them to
-anyone. Emails use reserved ``example`` domains so they cannot reach a real mailbox.
+anyone. Emails use reserved ``example`` domains so they cannot reach a real mailbox, and IP
+addresses come from private or documentation ranges.
 """
 
 import random
@@ -147,10 +148,32 @@ class ValueFactory:
         payload = prefix + self._digits(15 - len(prefix))
         return payload + luhn_check_digit(payload)
 
+    def amex_digits(self) -> str:
+        payload = self.rng.choice(["34", "37"]) + self._digits(12)
+        return payload + luhn_check_digit(payload)
+
     def card_number(self) -> str:
-        d = self.card_digits()
         sep = self.rng.choices([" ", "", "-"], weights=[6, 3, 1])[0]
+        if self.rng.random() < 0.15:  # 15-digit, grouped 4-6-5
+            d = self.amex_digits()
+            return sep.join((d[:4], d[4:10], d[10:]))
+        d = self.card_digits()
         return sep.join(d[i : i + 4] for i in range(0, 16, 4))
+
+    def ip_address(self) -> str:
+        """Private or documentation-range addresses only (RFC 1918, 5737, 3849)."""
+        r = self.rng.randint
+        return self.rng.choice(
+            [
+                f"192.168.{r(0, 255)}.{r(1, 254)}",
+                f"10.{r(0, 255)}.{r(0, 255)}.{r(1, 254)}",
+                f"203.0.113.{r(1, 254)}",
+                f"198.51.100.{r(1, 254)}",
+                f"2001:db8:{r(0, 0xFFFF):x}::{r(1, 0xFFFF):x}",
+                f"2001:db8:{r(0, 0xFFFF):x}:{r(0, 0xFFFF):x}:{r(0, 0xFFFF):x}:{r(0, 0xFFFF):x}:"
+                f"{r(0, 0xFFFF):x}:{r(1, 0xFFFF):x}",
+            ]
+        )
 
     # --- look-alikes that must NOT be detected ------------------------------------------
 
