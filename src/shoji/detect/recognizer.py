@@ -94,8 +94,10 @@ class Registry:
 
 
 def default_registry() -> Registry:
-    """A fresh registry with the built-in recognizers (added by the Stage 2 issues)."""
-    return Registry()
+    """A fresh registry with the built-in recognizers."""
+    from shoji.detect.recognizers import builtin_recognizers  # they import this module
+
+    return Registry(builtin_recognizers())
 
 
 def detect(text: str, registry: Registry | None = None) -> list[Entity]:
