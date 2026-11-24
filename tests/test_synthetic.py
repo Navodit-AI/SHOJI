@@ -111,6 +111,7 @@ def test_order_id_is_aadhaar_shaped_but_fails_verhoeff(factory):
         value = factory.order_id()
         assert re.fullmatch(r"[2-9][0-9]{11}", value)
         assert not verhoeff_valid(value)
+        assert not re.match(r"91[6-9]", value)  # that would also be "91" + a mobile
 
 
 def test_non_mobile_number_is_not_a_mobile(factory):
