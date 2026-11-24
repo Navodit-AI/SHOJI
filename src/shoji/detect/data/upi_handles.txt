@@ -1,0 +1,40 @@
+# Known UPI payment service provider (PSP) handles: the part after "@" in a UPI ID.
+# One per line, lowercase; "#" starts a comment. Not exhaustive: banks add handles over time.
+# A string with a dot after "@" (name@gmail.com) is an email, never a UPI ID.
+
+# Google Pay
+okaxis
+okhdfcbank
+okicici
+oksbi
+# PhonePe
+ybl
+ibl
+axl
+# Paytm
+paytm
+ptyes
+ptaxis
+pthdfc
+ptsbi
+# Amazon Pay
+apl
+yapl
+rapl
+# BHIM / NPCI
+upi
+# Bank handles
+axisbank
+hdfcbank
+icici
+sbi
+kotak
+barodampay
+pnb
+unionbank
+cnrb
+idfcbank
+indus
+federal
+yesbank
+aubank
