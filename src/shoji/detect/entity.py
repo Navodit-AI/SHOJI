@@ -1,6 +1,24 @@
 """The detection result type shared by every recognizer (rule-based now, ML from Stage 4)."""
 
 from dataclasses import dataclass
+from enum import StrEnum
+
+
+class EntityType(StrEnum):
+    """Entity type names shared by recognizers, the synthetic data and evaluation.
+
+    A ``StrEnum``, so members compare equal to plain strings (``EntityType.PAN == "PAN"``).
+    """
+
+    AADHAAR = "AADHAAR"
+    PAN = "PAN"
+    GSTIN = "GSTIN"
+    IFSC = "IFSC"
+    UPI_ID = "UPI_ID"
+    PHONE = "PHONE"
+    EMAIL = "EMAIL"
+    CARD_NUMBER = "CARD_NUMBER"
+    PERSON = "PERSON"
 
 
 @dataclass(frozen=True, slots=True)
