@@ -155,8 +155,14 @@ class ValueFactory:
     # --- look-alikes that must NOT be detected ------------------------------------------
 
     def order_id(self) -> str:
-        """12 digits starting 2-9 (Aadhaar-shaped) whose Verhoeff check digit is wrong."""
+        """12 digits starting 2-9 (Aadhaar-shaped) whose Verhoeff check digit is wrong.
+
+        Never ``91`` + 6-9: that is also "91" + a mobile number, which a phone detector
+        rightly reports, so it would not be a fair look-alike.
+        """
         payload = self.rng.choice("23456789") + self._digits(10)
+        while payload[:2] == "91" and payload[2] in "6789":
+            payload = self.rng.choice("23456789") + self._digits(10)
         good = verhoeff_check_digit(payload)
         return payload + self.rng.choice([d for d in string.digits if d != good])
 
