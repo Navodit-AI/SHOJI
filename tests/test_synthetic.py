@@ -1,5 +1,6 @@
 """Synthetic generator: values are format/checksum valid, look-alikes are not, spans are exact."""
 
+import ipaddress
 import json
 import random
 import re
@@ -99,8 +100,18 @@ def test_email(factory):
 def test_card_number(factory):
     for _ in range(N):
         value = factory.card_number()
-        assert re.fullmatch(r"[0-9]{4}([ -]?)[0-9]{4}\1[0-9]{4}\1[0-9]{4}", value), value
+        assert re.fullmatch(
+            r"[0-9]{4}([ -]?)[0-9]{4}\1[0-9]{4}\1[0-9]{4}"  # 16 digits, 4-4-4-4
+            r"|3[47][0-9]{2}([ -]?)[0-9]{6}\2[0-9]{5}",  # Amex, 4-6-5
+            value,
+        ), value
         assert luhn_valid(digits_only(value))
+
+
+def test_ip_address_private_or_documentation_ranges(factory):
+    for _ in range(N):
+        ip = ipaddress.ip_address(factory.ip_address())
+        assert ip.is_private  # includes the documentation ranges
 
 
 # --- Look-alikes ----------------------------------------------------------------------------

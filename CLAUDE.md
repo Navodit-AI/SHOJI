@@ -96,9 +96,15 @@ capture clean and reusable.
   `streaming.py` (SSE event re-splitting; Stage 3 restoration hooks in here),
   `capture.py` (RequestRecord + sinks; Stage 5 audit log = another sink).
   Verified live against Groq with `openai/gpt-oss-20b`.
-- Stage 2 (rule-based detection) issues drafted: #11-#16 (milestone "Stage 2: Rule-based
-  detection"). #11 recognizer framework done (`detect/` package: `entity.py`,
-  `recognizer.py`, `resolve.py`).
+- 24 Nov 2026: Stage 2 complete (issues #11-#16, PRs #17-#22). `detect/`: `entity.py`
+  (Entity, EntityType), `recognizer.py` (Recognizer, PatternRecognizer, Registry),
+  `resolve.py` (longest span, then score), `checksums.py`, `formats.py`,
+  `data/upi_handles.txt`, `recognizers/` (aadhaar, tax_codes, phone_upi, generic),
+  `metrics.py` (per-type P/R/F1), `__main__.py` (CLI). `synthetic/`: seeded fake-data
+  generator with gold spans and look-alike decoys.
+- Plain-language project explainer ("SHOJI: The Story So Far", a Claude Doc) is updated
+  after every merged PR.
+- Next: Stage 3 (redact/restore, streaming restoration, encrypted vault); issues not yet drafted.
 
 ## Local dev notes
 - Manual server checks: start uvicorn in a thread from a Python script and set

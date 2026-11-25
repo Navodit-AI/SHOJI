@@ -60,6 +60,7 @@ SLOTS: dict[str, _Fill] = {
     EntityType.EMAIL: lambda f, p: f.email(p),
     EntityType.CARD_NUMBER: lambda f, p: f.card_number(),
     EntityType.PERSON: lambda f, p: p.full_name,
+    EntityType.IP_ADDRESS: lambda f, p: f.ip_address(),
     ORDER_ID: lambda f, p: f.order_id(),
     NON_MOBILE: lambda f, p: f.non_mobile_number(),
     NON_CARD: lambda f, p: f.non_card_number(),
@@ -152,6 +153,10 @@ TEMPLATES: tuple[Template, ...] = (
     ),
     Template(
         "neg_hi_order", "hinglish", "Order number {ORDER_ID} abhi tak ship nahi hua, kya scene hai?"
+    ),
+    Template("ip_ssh", "en", "Server {IP_ADDRESS} refuses SSH from my laptop; how do I debug it?"),
+    Template(
+        "hi_ip", "hinglish", "Mera router ka IP {IP_ADDRESS} hai, port forwarding kaise karu?"
     ),
     Template("neg_version", "en", "Upgrade from version 2.14.3 to 3.0.1 before 2026-12-01."),
     Template("neg_plain", "en", "Explain the difference between a PAN card and an Aadhaar card."),
