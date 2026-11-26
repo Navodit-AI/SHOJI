@@ -1,6 +1,6 @@
 """Personal-data detection: recognizers produce candidate spans, the resolver de-overlaps them."""
 
-from shoji.detect.entity import Entity, EntityType
+from shoji.detect.entity import NER_TYPES, Entity, EntityType
 from shoji.detect.recognizer import (
     PatternRecognizer,
     Recognizer,
@@ -11,6 +11,7 @@ from shoji.detect.recognizer import (
 from shoji.detect.resolve import resolve
 
 __all__ = [
+    "NER_TYPES",
     "Entity",
     "EntityType",
     "PatternRecognizer",

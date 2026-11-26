@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from shoji.detect import Entity, EntityType, detect
+from shoji.detect import NER_TYPES, Entity, detect
 from shoji.redact import PLACEHOLDER, Mapping, redact, redact_messages, restore, value_key
 from shoji.synthetic import generate
 
@@ -152,7 +152,7 @@ def test_round_trip_on_synthetic_set():
         out = redact(s.text, entities, m)
         assert restore(out, m) == s.text, s.template_id
         for g in s.spans:
-            if g.type != EntityType.PERSON:  # names are detected from Stage 4
+            if g.type not in NER_TYPES:  # names, addresses, orgs: ML from Stage 4
                 assert g.text not in out, (s.template_id, g)
         checked += 1
     assert checked >= 1900

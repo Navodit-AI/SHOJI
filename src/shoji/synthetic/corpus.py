@@ -46,9 +46,12 @@ class Template:
 ORDER_ID = "ORDER_ID"
 NON_MOBILE = "NON_MOBILE"
 NON_CARD = "NON_CARD"
-DECOY_TYPES = frozenset({ORDER_ID, NON_MOBILE, NON_CARD})
+PLACE = "PLACE"  # a city on its own ("our Pune office") is not personal data
+NAME_WORD = "NAME_WORD"  # a word that is also a name, used as a word ("a rose garden")
+DECOY_TYPES = frozenset({ORDER_ID, NON_MOBILE, NON_CARD, PLACE, NAME_WORD})
 
-_Fill = Callable[[ValueFactory, Persona], str]
+# A fill returns the value, or ``(before, value, after)`` where only ``value`` is the span.
+_Fill = Callable[[ValueFactory, Persona], str | tuple[str, str, str]]
 
 SLOTS: dict[str, _Fill] = {
     EntityType.AADHAAR: lambda f, p: f.aadhaar(),
@@ -59,11 +62,23 @@ SLOTS: dict[str, _Fill] = {
     EntityType.PHONE: lambda f, p: f.phone(),
     EntityType.EMAIL: lambda f, p: f.email(p),
     EntityType.CARD_NUMBER: lambda f, p: f.card_number(),
-    EntityType.PERSON: lambda f, p: p.full_name,
+    EntityType.PERSON: lambda f, p: f.person_name(p),
     EntityType.IP_ADDRESS: lambda f, p: f.ip_address(),
+    EntityType.ADDRESS: lambda f, p: f.address(),
+    EntityType.ORG: lambda f, p: f.org(p),
+    "OTHER_PERSON": lambda f, p: f.person_name(f.persona()),  # a second, different person
+    "PERSON_HI": lambda f, p: f.person_name_hi(),
+    "ADDRESS_HI": lambda f, p: f.address_hi(),
     ORDER_ID: lambda f, p: f.order_id(),
     NON_MOBILE: lambda f, p: f.non_mobile_number(),
     NON_CARD: lambda f, p: f.non_card_number(),
+    PLACE: lambda f, p: f.city(),
+}
+# Slots whose gold type differs from the slot name.
+SLOT_TYPES: dict[str, str] = {
+    "OTHER_PERSON": EntityType.PERSON,
+    "PERSON_HI": EntityType.PERSON,
+    "ADDRESS_HI": EntityType.ADDRESS,
 }
 
 TEMPLATES: tuple[Template, ...] = (
@@ -161,9 +176,44 @@ TEMPLATES: tuple[Template, ...] = (
     Template("neg_version", "en", "Upgrade from version 2.14.3 to 3.0.1 before 2026-12-01."),
     Template("neg_plain", "en", "Explain the difference between a PAN card and an Aadhaar card."),
     Template("neg_hi_plain", "hinglish", "UPI se payment karna safe hai kya? Thoda explain karo."),
+    # Names, addresses and organisations (Stage 4)
+    Template("ship_to", "en", "Please ship the order to {PERSON}, {ADDRESS}. Contact: {PHONE}."),
+    Template("kyc_address", "en", "Update my address in the KYC records to {ADDRESS}."),
+    Template("employer", "en", "{PERSON} works at {ORG} and needs a salary certificate."),
+    Template("hospital", "en", "Book an appointment for {PERSON} at {ORG} next Tuesday."),
+    Template("vendor_moved", "en", "Our vendor {ORG} (GSTIN {GSTIN}) has moved to {ADDRESS}."),
+    Template(
+        "rent_letter", "en", "Draft a letter to {PERSON} at {ADDRESS} about the pending rent."
+    ),
+    Template("meeting", "en", "Set up a call between {PERSON} and {OTHER_PERSON} from {ORG}."),
+    Template("hi_parcel", "hinglish", "Parcel {ADDRESS} pe bhejna, {PERSON} receive karega."),
+    Template(
+        "hi_offer", "hinglish", "{PERSON} ne {ORG} join kiya hai, offer letter verify karna hai."
+    ),
+    Template("hi_shift", "hinglish", "Hum {ADDRESS} shift ho gaye hain, {PERSON} ko bata dena."),
+    Template("dev_address", "hi", "{PERSON_HI} जी का पता {ADDRESS_HI} है।"),
+    Template("dev_letter", "hi", "{ADDRESS_HI} पर {PERSON_HI} को चिट्ठी भेजनी है।"),
+    # Look-alikes for names and addresses
+    Template("neg_city_weather", "en", "What is the weather like in {PLACE} this weekend?"),
+    Template("neg_city_office", "en", "Our {PLACE} office is closed on Friday for Diwali."),
+    Template(
+        "neg_name_words",
+        "en",
+        "The [[NAME_WORD:Rose]] garden looks lovely on a [[NAME_WORD:Sunny]] morning.",
+    ),
+    Template("neg_joy", "en", "It was a [[NAME_WORD:Joy]] to read; send it to {EMAIL}."),
+    Template(
+        "neg_hi_asha",
+        "hinglish",
+        "Mujhe poori [[NAME_WORD:asha]] hai ki hum kal tak {PLACE} pahunch jaayenge.",
+    ),
+    Template(
+        "neg_hi_kiran", "hinglish", "Subah ki pehli [[NAME_WORD:kiran]] ke saath nikal jaana hai."
+    ),
 )
 
-_SLOT = re.compile(r"\{([A-Z_]+)\}")
+# ``{SLOT}`` is filled by a generator; ``[[TYPE:text]]`` is literal text recorded as a decoy.
+_SLOT = re.compile(r"\{([A-Z_]+)\}|\[\[([A-Z_]+):([^\]]+)\]\]")
 
 
 def render(template: Template, factory: ValueFactory) -> Sample:
@@ -178,14 +228,22 @@ def render(template: Template, factory: ValueFactory) -> Sample:
         literal = template.text[last : m.start()]
         parts.append(literal)
         length += len(literal)
-        slot = m.group(1)
-        if slot not in SLOTS:
-            raise KeyError(f"template {template.id!r} has unknown slot {{{slot}}}")
-        value = SLOTS[slot](factory, person)
-        span = GoldSpan(slot, length, length + len(value), value)
+        if m.group(1) is None:  # literal decoy
+            slot, filled = m.group(2), m.group(3)
+            if slot not in DECOY_TYPES:
+                raise KeyError(f"template {template.id!r}: [[{slot}:...]] is not a decoy type")
+        else:
+            slot = m.group(1)
+            if slot not in SLOTS:
+                raise KeyError(f"template {template.id!r} has unknown slot {{{slot}}}")
+            filled = SLOTS[slot](factory, person)
+        before, value, after = filled if isinstance(filled, tuple) else ("", filled, "")
+        parts.append(before)
+        length += len(before)
+        span = GoldSpan(SLOT_TYPES.get(slot, slot), length, length + len(value), value)
         (decoys if slot in DECOY_TYPES else spans).append(span)
-        parts.append(value)
-        length += len(value)
+        parts.append(value + after)
+        length += len(value) + len(after)
         last = m.end()
     parts.append(template.text[last:])
     return Sample("".join(parts), tuple(spans), tuple(decoys), template.lang, template.id)
