@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Used only when a request omits `model`.
     shoji_default_model: str | None = None
 
+    # Redact personal data before forwarding and restore it in replies. Off = pass-through.
+    shoji_redact: bool = True
+    # Detections scoring below this are ignored (e.g. a bare 91+mobile run as Aadhaar, 0.4).
+    shoji_min_score: float = 0.5
+
     # Encrypted placeholder vault; unset key = no vault (see shoji/vault.py).
     shoji_vault_key: str = ""
     shoji_vault_path: str = "shoji_vault.db"

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,11 +12,15 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from shoji.capture import Capture, RequestRecord, request_id_from
 from shoji.config import Settings
-from shoji.streaming import MID_STREAM_ERROR, relay
+from shoji.detect import Entity, default_registry, resolve
+from shoji.redact import Mapping, redact_messages, restore
+from shoji.streaming import MID_STREAM_ERROR, SseRestorer, relay
 from shoji.upstream import send_with_retry
 from shoji.vault import open_vault
 
 REQUEST_ID_HEADER = "X-Request-ID"
+# Optional: lets the vault keep a conversation's placeholders across requests.
+CONVERSATION_HEADER = "X-Shoji-Conversation"
 
 
 def _error(status: int, message: str, err_type: str = "invalid_request_error") -> JSONResponse:
@@ -45,10 +50,34 @@ def _upstream_error(resp: httpx.Response) -> Response:
     )
 
 
+def _restore_completion(resp: httpx.Response, mapping: Mapping) -> bytes:
+    """The response body with placeholders in ``choices[].message.content`` restored."""
+    try:
+        payload = resp.json()
+    except ValueError:
+        return resp.content
+    changed = False
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    for choice in choices if isinstance(choices, list) else []:
+        message = choice.get("message") if isinstance(choice, dict) else None
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            restored = restore(message["content"], mapping)
+            if restored != message["content"]:
+                message["content"] = restored
+                changed = True
+    return json.dumps(payload, ensure_ascii=False).encode() if changed else resp.content
+
+
 def create_app(settings: Settings | None = None, capture: Capture | None = None) -> FastAPI:
     settings = settings or Settings()
     capture = capture or Capture()
     provider = settings.provider()
+    registry = default_registry()
+
+    def detector(text: str) -> list[Entity]:
+        # Drop weak candidates before resolving overlaps, so a low-scoring long span can't
+        # hide a confident shorter one.
+        return resolve(e for e in registry.analyze(text) if e.score >= settings.shoji_min_score)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -102,6 +131,10 @@ def create_app(settings: Settings | None = None, capture: Capture | None = None)
         record.model = body.get("model") if isinstance(body.get("model"), str) else None
         record.stream = stream
 
+        mapping = None
+        if settings.shoji_redact and isinstance(body.get("messages"), list):
+            mapping = _redact(body, request, record)
+
         # The client's own Authorization header is never forwarded: the proxy holds the key.
         upstream: httpx.AsyncClient = request.app.state.upstream
         upstream_request = upstream.build_request(
@@ -134,7 +167,7 @@ def create_app(settings: Settings | None = None, capture: Capture | None = None)
 
         if stream and resp.is_success:
             return StreamingResponse(
-                _stream_body(resp, record),
+                _stream_body(resp, record, mapping),
                 status_code=resp.status_code,
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache"},
@@ -148,14 +181,31 @@ def create_app(settings: Settings | None = None, capture: Capture | None = None)
             record.error_type = "upstream_error"
             return _upstream_error(resp)
         return Response(
-            content=resp.content,
+            content=_restore_completion(resp, mapping) if mapping else resp.content,
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type", "application/json"),
         )
 
-    async def _stream_body(resp: httpx.Response, record: RequestRecord) -> AsyncIterator[bytes]:
+    def _redact(body: dict, request: Request, record: RequestRecord) -> Mapping:
+        """Redact ``body["messages"]`` in place; return the mapping to restore the reply with."""
+        t0 = time.perf_counter()
+        vault = request.app.state.vault
+        conversation = request.headers.get(CONVERSATION_HEADER) or None
+        stored = vault.load(conversation) if vault and conversation else None
+        result = redact_messages(body["messages"], detector=detector, mapping=stored)
+        body["messages"] = result.messages
+        if vault and conversation:
+            vault.save(conversation, result.mapping)
+        record.entity_counts = dict(sorted(result.counts.items()))
+        record.redaction_ms = round((time.perf_counter() - t0) * 1000, 2)
+        return result.mapping
+
+    async def _stream_body(
+        resp: httpx.Response, record: RequestRecord, mapping: Mapping | None
+    ) -> AsyncIterator[bytes]:
+        restorer = SseRestorer(mapping) if mapping else None
         try:
-            async for event in relay(resp.aiter_bytes(), resp.aclose):
+            async for event in relay(resp.aiter_bytes(), resp.aclose, restorer):
                 if event is MID_STREAM_ERROR:
                     record.error_type = "upstream_error_mid_stream"
                 yield event

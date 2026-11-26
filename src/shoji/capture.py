@@ -1,8 +1,8 @@
 """Per-request capture: one record per proxied request, sent to pluggable sinks.
 
-A record holds metadata only (ids, model, status, timings) and never prompt or response
-content. Stage 1 ships a JSON-log sink; later stages add sinks (e.g. the SQLite audit log)
-without touching the proxy code.
+A record holds metadata only (ids, model, status, timings, entity counts) and never prompt
+or response content or the redacted values. Stage 1 ships a JSON-log sink; later stages add
+sinks (e.g. the SQLite audit log) without touching the proxy code.
 """
 
 import json
@@ -40,6 +40,10 @@ class RequestRecord:
     # Time until the proxy finished responding (end of stream, for streams).
     total_latency_ms: float | None = None
     error_type: str | None = None
+    # Detections per entity type (counts only, never values) and time spent detecting and
+    # redacting the request. Empty / None when redaction is off.
+    entity_counts: dict[str, int] = field(default_factory=dict)
+    redaction_ms: float | None = None
     _t0: float = field(default_factory=time.perf_counter, repr=False)
 
     def mark_upstream(self) -> None:
