@@ -92,6 +92,20 @@ class Mapping:
         self._types[placeholder] = entity_type
         return placeholder
 
+    def add_existing(self, placeholder: str, entity_type: str, value: str) -> None:
+        """Re-add a placeholder issued earlier (e.g. loaded from the vault). New placeholders
+        of that type are numbered after it."""
+        m = PLACEHOLDER.fullmatch(placeholder)
+        if m is None or m.group(1) != entity_type:
+            raise ValueError(f"{placeholder!r} is not a placeholder for {entity_type!r}")
+        key = (entity_type, value_key(entity_type, value))
+        if placeholder in self._originals or key in self._by_key:
+            raise ValueError(f"{placeholder!r} or its value is already in the mapping")
+        self._by_key[key] = placeholder
+        self._originals[placeholder] = value
+        self._types[placeholder] = entity_type
+        self._counters[entity_type] = max(self._counters.get(entity_type, 0), int(m.group(2)))
+
     def original(self, placeholder: str) -> str | None:
         return self._originals.get(placeholder)
 
