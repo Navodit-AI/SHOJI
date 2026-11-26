@@ -104,7 +104,15 @@ capture clean and reusable.
   generator with gold spans and look-alike decoys.
 - Plain-language project explainer ("SHOJI: The Story So Far", a Claude Doc) is updated
   after every merged PR.
-- Next: Stage 3 (redact/restore, streaming restoration, encrypted vault); issues not yet drafted.
+- 26 Nov 2026: Stage 3 complete (issues #23-#27, PRs #28-#32). `redact/`: `mapping.py`
+  (Mapping, value_key; placeholders numbered by first appearance, so resent history redacts
+  identically), `text.py` (redact/restore), `messages.py` (redact_messages), `stream.py`
+  (StreamRestorer). `streaming.py`: SseRestorer in `relay()`. `vault.py`: SQLite + Fernet,
+  HMAC lookups, TTL, used only with `SHOJI_VAULT_KEY` + `X-Shoji-Conversation`. `app.py`
+  redacts requests and restores replies (`SHOJI_REDACT`, `SHOJI_MIN_SCORE`); records carry
+  `entity_counts` and `redaction_ms`. Manual live check: `scripts/smoke_redact.py` (Groq).
+- Next: Stage 4 (ML detection for names/addresses, e.g. GLiNER on CPU, merged with the
+  rules); issues not yet drafted.
 
 ## Local dev notes
 - Manual server checks: start uvicorn in a thread from a Python script and set

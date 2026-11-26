@@ -8,9 +8,10 @@ response, and keeps an audit log.
 
 Integration is a one-line change: point your OpenAI-compatible client's base URL at SHOJI.
 
-> Status: Stages 1–2 of 7 complete: an OpenAI-compatible pass-through proxy with streaming,
-> retries and request logging, and rule-based detection of Indian and generic personal-data
-> formats. The proxy does not redact yet; redact/restore comes in Stage 3.
+> Status: Stages 1–3 of 7 complete: an OpenAI-compatible proxy with streaming, retries and
+> request logging; rule-based detection of Indian and generic personal-data formats; and
+> reversible redaction, including streamed replies and an optional encrypted vault. Names
+> and addresses (ML detection) come in Stage 4.
 
 ## Quickstart
 
@@ -82,6 +83,59 @@ for chunk in client.chat.completions.create(
 Available model ids depend on the provider; for Groq, see
 `curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY"`.
 
+## Redaction
+
+Every request is redacted before it leaves the machine, and every reply is restored before
+your app sees it. Each value gets a placeholder such as `<PHONE_1>`. The same value always
+gets the same placeholder, even when it is written differently (`98765 43210` and
+`+91-98765-43210`). Live run against Groq (`python scripts/smoke_redact.py`, synthetic
+data):
+
+```text
+App sent:
+  Write a two-sentence payment reminder for customer PAN ABCPD1234F (Aadhaar 2345 6789 0124).
+  Ask them to pay via UPI to shop@okaxis or call +91 98765 43210. Quote the PAN, UPI ID and
+  phone number exactly as written.
+
+Provider received:
+  Write a two-sentence payment reminder for customer PAN <PAN_1> (Aadhaar <AADHAAR_1>).
+  Ask them to pay via UPI to <UPI_ID_1> or call <PHONE_1>. Quote the PAN, UPI ID and
+  phone number exactly as written.
+
+App got back:
+  Dear customer with PAN ABCPD1234F (Aadhaar 2345 6789 0124), please pay the outstanding
+  amount via UPI to shop@okaxis. If you have any queries, you can also call +91 98765 43210.
+```
+
+(Lines wrapped for the README.) Streaming works the same way: a placeholder cut across two
+chunks (`<PHO` + `NE_1>`) is held back only until it is complete, and ordinary text is
+never delayed.
+
+All roles are redacted, including earlier assistant turns and `{"type": "text"}` parts.
+Images, tool-call arguments and other fields are passed through as they are. Because chat
+clients resend the whole history every turn, placeholders stay stable across a conversation
+with nothing stored.
+
+**Vault (optional).** If your app trims old messages, set `SHOJI_VAULT_KEY` (generate one
+with `python -m shoji.vault`) and send an `X-Shoji-Conversation: <any id>` header. The
+conversation's placeholders are then kept in a local SQLite file, values encrypted with
+Fernet and looked up by keyed hash, and deleted after `SHOJI_VAULT_TTL_HOURS`. Without a
+key, nothing is stored.
+
+**Known limits**
+
+- Only exact placeholder tokens are restored. If a model rewrites one (`<phone_1>`,
+  `PHONE_1`), it reaches your app as written.
+- The model only sees the placeholder, so it can misread what it stands for. In an
+  earlier smoke run, a streamed reply began "Dear ABCPD1234F": the model took `<PAN_1>`
+  for a name. Stage 6 measures how much redaction changes answer quality.
+- Placeholders in tool-call arguments and reasoning fields are not restored.
+- With the vault, if a user types a placeholder that was already issued in that
+  conversation (`<PHONE_1>`), it is restored to the real value.
+- With the vault, two requests in the same conversation at the same moment can both
+  issue a new placeholder under the same number. The vault keeps the first one. Each reply
+  is still restored correctly.
+
 ## Configuration
 
 All settings are environment variables, usually set in `.env` (see `.env.example`).
@@ -94,6 +148,11 @@ All settings are environment variables, usually set in `.env` (see `.env.example
 | `SHOJI_UPSTREAM_TIMEOUT` | `60` | Seconds to wait for the provider before returning 504 |
 | `SHOJI_UPSTREAM_RETRIES` | `1` | Retries on connection failures and 5xx, before any response is sent |
 | `SHOJI_RETRY_BACKOFF` | `0.5` | Base delay in seconds between retries |
+| `SHOJI_REDACT` | `true` | Redact requests and restore replies; `false` = plain pass-through |
+| `SHOJI_MIN_SCORE` | `0.5` | Detections scoring below this are ignored |
+| `SHOJI_VAULT_KEY` | (none) | Enables the encrypted vault; `python -m shoji.vault` prints a key |
+| `SHOJI_VAULT_PATH` | `shoji_vault.db` | Vault file (created readable by its owner only) |
+| `SHOJI_VAULT_TTL_HOURS` | `24` | Conversations unused for this long are deleted |
 
 Switching providers is a config change: set `SHOJI_PROVIDER` and that provider's key.
 
@@ -111,13 +170,14 @@ Failures come back in the OpenAI error shape, so SDKs raise their usual exceptio
 
 ## Request logs
 
-Each request writes one JSON line to stdout. Logs hold metadata only, never prompt or
-response content:
+Each request writes one JSON line to stdout. Logs hold metadata only (what kinds of data
+were caught and how many), never prompt or response content, values or placeholders:
 
 ```json
-{"request_id": "75153b5c...", "provider": "groq", "started_at": "2026-11-22T18:35:12+00:00",
+{"request_id": "563600d9cbf1...", "provider": "groq", "started_at": "2026-11-26T04:56:40+00:00",
  "model": "openai/gpt-oss-20b", "stream": false, "status": 200,
- "upstream_latency_ms": 674.47, "total_latency_ms": 675.68, "error_type": null}
+ "upstream_latency_ms": 784.36, "total_latency_ms": 784.68, "error_type": null,
+ "entity_counts": {"AADHAAR": 1, "PAN": 1, "PHONE": 1, "UPI_ID": 1}, "redaction_ms": 0.15}
 ```
 
 The same id is returned in the `X-Request-ID` response header. Send your own `X-Request-ID`
@@ -125,7 +185,7 @@ to correlate SHOJI's logs with your app's.
 
 ## Detection
 
-Stage 2 adds rule-based recognizers, runnable on their own (locally, nothing is sent anywhere):
+The rule-based recognizers can also be run on their own (locally, nothing is sent anywhere):
 
 ```bash
 python -m shoji.detect "Remind Rahul (PAN ABCPD1234F, Aadhaar 2345 6789 0124) to pay ₹4,999 \
@@ -172,11 +232,14 @@ ruff check .
 ruff format --check .
 ```
 
+`scripts/smoke_redact.py` is a manual check against the real Groq free tier with synthetic
+data. It needs `GROQ_API_KEY` and is not run in CI.
+
 ## Roadmap
 
 1. ~~Pass-through proxy with streaming, one provider, request logging~~ (done)
 2. ~~Rule-based detection for structured Indian and generic formats~~ (done)
-3. Redact/restore, including streaming restoration and an encrypted vault
+3. ~~Redact/restore, including streaming restoration and an encrypted vault~~ (done)
 4. ML-based detection (names, addresses) merged with the rules
 5. Audit log, dashboard and playground
 6. Evaluation against Presidio; answer quality and latency overhead
