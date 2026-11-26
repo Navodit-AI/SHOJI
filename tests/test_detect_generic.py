@@ -160,6 +160,30 @@ def test_score_spans_exact_match_only():
     assert "PHONE" in format_report(scores)
 
 
+def test_score_spans_overlap_match():
+    gold = {("PERSON", 0, 10), ("ADDRESS", 20, 50), ("ORG", 60, 70)}
+    predicted = {
+        ("PERSON", 4, 10),  # boundary differs: an overlap hit, an exact miss
+        ("ADDRESS", 20, 30),  # two pieces of one address: one hit, one false alarm
+        ("ADDRESS", 32, 50),
+        ("PERSON", 60, 70),  # right span, wrong type
+    }
+    exact = score_spans([(gold, predicted)])
+    overlap = score_spans([(gold, predicted)], match="overlap")
+    assert exact["PERSON"] == TypeScore(fp=2, fn=1)
+    assert overlap["PERSON"] == TypeScore(tp=1, fp=1)
+    assert overlap["ADDRESS"] == TypeScore(tp=1, fp=1)
+    assert overlap["ORG"] == TypeScore(fn=1)
+    with pytest.raises(ValueError):
+        score_spans([], match="fuzzy")
+
+
+def test_overlap_prefers_exact_then_largest_overlap():
+    gold = {("PERSON", 0, 10), ("PERSON", 12, 20)}
+    predicted = {("PERSON", 0, 10), ("PERSON", 8, 18)}
+    assert score_spans([(gold, predicted)], match="overlap")["PERSON"] == TypeScore(tp=2)
+
+
 def test_type_score_zero_division():
     assert TypeScore().precision == TypeScore().recall == TypeScore().f1 == 0.0
 

@@ -176,3 +176,15 @@ def test_real_model_on_synthetic_sentences():
     text = "Please ship the order to Neha Sen, Flat 1302, Tilak Path, Fort Kochi, Kochi 682887."
     types = {e.type for e in r.analyze(text)}
     assert {EntityType.PERSON, EntityType.ADDRESS} <= types
+
+
+def test_defaults_match_the_recorded_recommendation():
+    import json
+    from pathlib import Path
+
+    from shoji.detect.ml import DEFAULT_MODEL, DEFAULT_THRESHOLDS
+
+    path = Path(__file__).resolve().parent.parent / "results" / "ner_models.json"
+    rec = json.loads(path.read_text())["recommendation"]
+    assert rec["model"] == DEFAULT_MODEL
+    assert {t: r["threshold"] for t, r in rec["thresholds"].items()} == DEFAULT_THRESHOLDS
