@@ -196,7 +196,7 @@ def create_app(settings: Settings | None = None, capture: Capture | None = None)
         body["messages"] = result.messages
         if vault and conversation:
             vault.save(conversation, result.mapping)
-        record.entity_counts = dict(sorted(result.counts.items()))
+        record.entity_counts = {str(t): n for t, n in sorted(result.counts.items())}
         record.redaction_ms = round((time.perf_counter() - t0) * 1000, 2)
         return result.mapping
 
