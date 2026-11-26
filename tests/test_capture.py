@@ -31,6 +31,8 @@ FIELDS = {
     "upstream_latency_ms",
     "total_latency_ms",
     "error_type",
+    "entity_counts",
+    "redaction_ms",
 }
 
 
@@ -76,6 +78,31 @@ def test_content_never_reaches_records_or_logs(client, records, caplog):
     for secret in (SECRET_PROMPT, SECRET_REPLY):
         assert secret not in dumped
         assert secret not in caplog.text
+
+
+@respx.mock
+def test_redacted_values_and_placeholders_never_reach_records_or_logs(client, records, caplog):
+    # Synthetic values only.
+    values = ["ABCPD1234F", "+91 98765 43210", "priya@okaxis"]
+    prompt = f"PAN {values[0]}, phone {values[1]}, UPI {values[2]}"
+    reply = "Noted <PAN_1> and <PHONE_1>."
+    respx.post(URL).mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": reply}}]}
+        )
+    )
+    payload = {"model": "test-model", "messages": [{"role": "user", "content": prompt}]}
+
+    with caplog.at_level(logging.DEBUG):
+        client.post("/v1/chat/completions", json=payload)
+
+    (record,) = [r.to_dict() for r in records]
+    assert record["entity_counts"] == {"PAN": 1, "PHONE": 1, "UPI_ID": 1}
+    assert record["redaction_ms"] >= 0
+    dumped = json.dumps(record)
+    for text in [*values, "<PAN_1>", "<PHONE_1>", "<UPI_ID_1>"]:
+        assert text not in dumped
+        assert text not in caplog.text
 
 
 @respx.mock
