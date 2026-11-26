@@ -13,6 +13,7 @@ from shoji.capture import Capture, RequestRecord, request_id_from
 from shoji.config import Settings
 from shoji.streaming import MID_STREAM_ERROR, relay
 from shoji.upstream import send_with_retry
+from shoji.vault import open_vault
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -56,7 +57,15 @@ def create_app(settings: Settings | None = None, capture: Capture | None = None)
             timeout=settings.shoji_upstream_timeout,
         ) as client:
             app.state.upstream = client
-            yield
+            # Used by redaction from #26; opened here so a bad key fails at startup.
+            app.state.vault = open_vault(
+                settings.shoji_vault_key, settings.shoji_vault_path, settings.shoji_vault_ttl_hours
+            )
+            try:
+                yield
+            finally:
+                if app.state.vault is not None:
+                    app.state.vault.close()
 
     app = FastAPI(title="SHOJI", lifespan=lifespan)
 

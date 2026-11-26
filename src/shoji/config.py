@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Used only when a request omits `model`.
     shoji_default_model: str | None = None
 
+    # Encrypted placeholder vault; unset key = no vault (see shoji/vault.py).
+    shoji_vault_key: str = ""
+    shoji_vault_path: str = "shoji_vault.db"
+    shoji_vault_ttl_hours: float = 24.0
+
     groq_api_key: str = ""
     gemini_api_key: str = ""
     openrouter_api_key: str = ""
