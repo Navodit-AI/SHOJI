@@ -1,4 +1,10 @@
-"""Per-entity-type precision/recall against gold spans (exact type + span match)."""
+"""Per-entity-type precision/recall against gold spans.
+
+Two ways to count a hit: ``exact`` (same type and both offsets) and ``overlap`` (same type
+and the spans share at least one character, matched one-to-one). Exact is the strict
+headline; overlap shows how much of the gap is only about boundaries ("Dr. Priya Nair" vs
+"Priya Nair").
+"""
 
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -29,31 +35,66 @@ class TypeScore:
 Span = tuple[str, int, int]  # (type, start, end)
 
 
-def score_spans(pairs: Iterable[tuple[set[Span], set[Span]]]) -> dict[str, TypeScore]:
-    """Score ``(gold, predicted)`` span sets, one pair per text. A prediction counts only if
-    its type and both offsets match a gold span exactly."""
+def _overlap_matches(gold: set[Span], predicted: set[Span]) -> set[tuple[Span, Span]]:
+    """One-to-one (gold, predicted) pairs of the same type that share a character. Exact
+    matches are paired first, then the remaining spans greedily by largest overlap."""
+    pairs = {(g, g) for g in gold & predicted}
+    free_gold, free_pred = gold - predicted, predicted - gold
+    candidates = sorted(
+        (
+            (min(g[2], p[2]) - max(g[1], p[1]), g, p)
+            for g in free_gold
+            for p in free_pred
+            if g[0] == p[0] and g[1] < p[2] and p[1] < g[2]
+        ),
+        reverse=True,
+    )
+    for _, g, p in candidates:
+        if g in free_gold and p in free_pred:
+            pairs.add((g, p))
+            free_gold.discard(g)
+            free_pred.discard(p)
+    return pairs
+
+
+def score_spans(
+    pairs: Iterable[tuple[set[Span], set[Span]]], match: str = "exact"
+) -> dict[str, TypeScore]:
+    """Score ``(gold, predicted)`` span sets, one pair per text. ``match`` is ``"exact"``
+    (type and both offsets) or ``"overlap"`` (type, and at least one shared character)."""
+    if match not in ("exact", "overlap"):
+        raise ValueError(f"match must be 'exact' or 'overlap', not {match!r}")
     scores: dict[str, TypeScore] = {}
     for gold, predicted in pairs:
         for t, *_ in gold | predicted:
             scores.setdefault(t, TypeScore())
-        for t, *_ in gold & predicted:
-            scores[t].tp += 1
-        for t, *_ in predicted - gold:
+        if match == "exact":
+            hits = {(g, g) for g in gold & predicted}
+        else:
+            hits = _overlap_matches(gold, predicted)
+        matched_gold = {g for g, _ in hits}
+        matched_pred = {p for _, p in hits}
+        for g, _ in hits:
+            scores[g[0]].tp += 1
+        for t, *_ in predicted - matched_pred:
             scores[t].fp += 1
-        for t, *_ in gold - predicted:
+        for t, *_ in gold - matched_gold:
             scores[t].fn += 1
     return dict(sorted(scores.items()))
 
 
-def evaluate(samples: Iterable, registry: Registry) -> dict[str, TypeScore]:
+def evaluate(samples: Iterable, registry: Registry, match: str = "exact") -> dict[str, TypeScore]:
     """Score ``registry.detect`` on samples with ``.text`` and gold ``.spans`` (see
     ``shoji.synthetic.Sample``)."""
     return score_spans(
         (
-            {(g.type, g.start, g.end) for g in s.spans},
-            {(str(e.type), e.start, e.end) for e in registry.detect(s.text)},
-        )
-        for s in samples
+            (
+                {(g.type, g.start, g.end) for g in s.spans},
+                {(str(e.type), e.start, e.end) for e in registry.detect(s.text)},
+            )
+            for s in samples
+        ),
+        match=match,
     )
 
 

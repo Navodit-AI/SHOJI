@@ -16,8 +16,14 @@ from typing import Any, Protocol
 from shoji.detect.entity import Entity, EntityType
 from shoji.detect.recognizer import Recognizer
 
-# Provisional; the default is chosen by measurement in eval/ner_models.py (issue #35).
-DEFAULT_MODEL = "urchade/gliner_multi-v2.1"
+# Chosen by eval/ner_models.py (results/ner_models.md): best exact F1 of the candidates, and
+# per-type thresholds that maximise F2 (recall-weighted: a miss leaks data).
+DEFAULT_MODEL = "urchade/gliner_multi_pii-v1"
+DEFAULT_THRESHOLDS: dict[str, float] = {
+    EntityType.PERSON: 0.2,
+    EntityType.ADDRESS: 0.3,
+    EntityType.ORG: 0.9,
+}
 
 # Natural-language labels the model is asked for, and the entity type each one becomes.
 DEFAULT_LABELS: dict[str, str] = {
@@ -80,7 +86,7 @@ class NerRecognizer(Recognizer):
         self,
         backend: NerBackend,
         labels: Mapping[str, str] = DEFAULT_LABELS,
-        thresholds: float | Mapping[str, float] = 0.5,
+        thresholds: float | Mapping[str, float] = DEFAULT_THRESHOLDS,
         max_words: int = 200,
         overlap: int = 40,
         join_types: frozenset[str] = frozenset({EntityType.ADDRESS}),
