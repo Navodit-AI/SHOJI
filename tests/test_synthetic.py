@@ -191,9 +191,11 @@ def test_persona_ties_name_to_email_and_pan():
     for seed in range(20):
         s = render(t, ValueFactory(random.Random(seed)))
         person, email, pan = s.spans
-        first, last = person.text.lower().split()
-        assert last in email.text or first in email.text
-        assert pan.text[4] == last[0].upper()
+        # render() draws the persona first, so the same seed gives the same persona.
+        p = ValueFactory(random.Random(seed)).persona()
+        assert p.first in person.text or p.last in person.text
+        assert p.last.lower() in email.text
+        assert pan.text[4] == p.last[0].upper()
 
 
 def test_unknown_slot_raises():

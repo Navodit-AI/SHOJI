@@ -2,6 +2,7 @@
 
 from shoji.synthetic.corpus import (
     DECOY_TYPES,
+    SLOT_TYPES,
     TEMPLATES,
     GoldSpan,
     Sample,
@@ -14,6 +15,7 @@ from shoji.synthetic.values import Persona, ValueFactory
 
 __all__ = [
     "DECOY_TYPES",
+    "SLOT_TYPES",
     "TEMPLATES",
     "GoldSpan",
     "Persona",

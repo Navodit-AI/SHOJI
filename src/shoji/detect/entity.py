@@ -20,6 +20,12 @@ class EntityType(StrEnum):
     CARD_NUMBER = "CARD_NUMBER"
     IP_ADDRESS = "IP_ADDRESS"
     PERSON = "PERSON"
+    ADDRESS = "ADDRESS"
+    ORG = "ORG"
+
+
+# Types with no fixed format, left to the NER model (Stage 4); the rest are rule-based.
+NER_TYPES = frozenset({EntityType.PERSON, EntityType.ADDRESS, EntityType.ORG})
 
 
 @dataclass(frozen=True, slots=True)
